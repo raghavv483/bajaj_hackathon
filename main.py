@@ -8,7 +8,7 @@ from typing import List
 from dotenv import load_dotenv
 
 # Import the core processing logic
-from rag_pipeline import process_query
+from rag_pipeline2 import process_query
 
 # Load environment variables from .env file
 load_dotenv()
