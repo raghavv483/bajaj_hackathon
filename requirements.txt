@@ -1,13 +1,17 @@
+# requirements.txt
+
+# Web Server
 fastapi
-uvicorn[standard]
+uvicorn
+gunicorn
 pydantic
+
+# RAG Pipeline
+httpx
 python-dotenv
-google-generativeai
-sentence-transformers
-faiss-cpu
 numpy
-requests
 PyMuPDF
 python-docx
-pdfplumber
-httpx
+sentence-transformers
+faiss-cpu
+openai

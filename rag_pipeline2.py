@@ -1,4 +1,4 @@
-# rag_pipeline.py - FINAL CORRECTED VERSION for simple string list output
+# rag_pipeline2.py - FINAL CORRECTED VERSION
 
 import os
 import httpx
@@ -19,6 +19,10 @@ from sentence_transformers import SentenceTransformer
 import faiss
 from dotenv import load_dotenv
 from openai import OpenAI
+
+# NOTE: The primary error was a recurring typo in the class constructors.
+# They were named _init_ (single underscore) instead of the correct __init__ (double underscore).
+# This has been corrected in all classes below.
 
 _thread_pool = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
 
@@ -131,27 +135,15 @@ class TokenOptimizedGenerator:
         
         context = "\n\n".join(chunk['text'] for chunk in context_chunks)
         
-        # MODIFIED: Updated prompt for simple clause extraction
-        prompt = f"""Based on the context below, answer the question.
-- Return ONLY the most relevant clause(s) verbatim from the document.
-- Do not add any explanation or introductory text.
-- If multiple separate sentences answer the question, join them with a comma and a space.
-- If the answer is not in the context, return the single phrase: "Information not available in the document."
-
-CONTEXT:
-{context}
-
-QUESTION: {query}
-
-ANSWER:"""
-
+        prompt = f"Based on the context below, answer the question accurately and concisely.\n\nCONTEXT:\n{context}\n\nQUESTION: {query}\n\nANSWER:"
+        
         def get_completion():
             chat_completion = self.client.chat.completions.create(
                 messages=[
-                    {"role": "system", "content": "You are an expert at extracting verbatim clauses from documents."},
+                    {"role": "system", "content": "You are a helpful assistant that provides concise answers based on the provided context."},
                     {"role": "user", "content": prompt},
                 ],
-                model=self.model_name, temperature=0.0, max_tokens=300,
+                model=self.model_name, temperature=0.1, max_tokens=300,
             )
             return chat_completion.choices[0].message.content
         
@@ -179,8 +171,6 @@ class CacheManager:
 
 cache_manager = CacheManager()
 
-# === MAIN OPTIMIZED PIPELINE ===
-# MODIFIED: Function now returns a simple List[str]
 async def process_query(url: str, questions: List[str]) -> List[str]:
     start_time = time.time()
     vector_db = cache_manager.get_cached_vector_db(url)
@@ -195,7 +185,6 @@ async def process_query(url: str, questions: List[str]) -> List[str]:
 
     answer_generator = TokenOptimizedGenerator()
 
-    # MODIFIED: This inner function now returns a simple string
     async def answer_single_question(question: str) -> str:
         cached_answer = cache_manager.get_cached_answer(url, question)
         if cached_answer:
