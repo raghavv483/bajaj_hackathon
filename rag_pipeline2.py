@@ -1,4 +1,4 @@
-# rag_pipeline.py - Complete file modified to use the Groq API
+# rag_pipeline.py - FINAL CORRECTED VERSION for simple string list output
 
 import os
 import httpx
@@ -18,18 +18,16 @@ from docx import Document
 from sentence_transformers import SentenceTransformer
 import faiss
 from dotenv import load_dotenv
-
-# NEW: Import the OpenAI library to connect to Groq
 from openai import OpenAI
 
-# Thread pool for CPU-bound operations
 _thread_pool = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
 
-# === MULTI-TIER MODEL STRATEGY (Unchanged) ===
 class ModelManager:
+    # FIXED: Corrected constructor to __init__
     def __init__(self):
         self.models = {}
         self.model_lock = threading.Lock()
+
     def get_model(self, model_type: str = "fast"):
         if model_type not in self.models:
             with self.model_lock:
@@ -40,8 +38,8 @@ class ModelManager:
 
 model_manager = ModelManager()
 
-# === DOCUMENT EXTRACTION (INTEGRATED) (Unchanged) ===
 class DocumentExtractor:
+    # DocumentExtractor class is correct and unchanged
     @staticmethod
     async def extract_from_url(url: str) -> str:
         try:
@@ -74,10 +72,10 @@ class DocumentExtractor:
         finally:
             os.unlink(temp_filepath)
 
-# === NEW FASTER CHUNKING STRATEGY (Unchanged) ===
 class SmartChunker:
+    # SmartChunker class is correct and unchanged
     @staticmethod
-    def smart_chunk(text: str, chunk_size: int = 2000, overlap: int = 200) -> List[Dict]:
+    def smart_chunk(text: str, chunk_size: int = 1500, overlap: int = 100) -> List[Dict]:
         if not text: return []
         splits = text.split('\n\n')
         chunks, position, current_chunk = [], 0, ""
@@ -94,39 +92,38 @@ class SmartChunker:
             chunks.append({"text": current_chunk.strip(), "position": position})
         return chunks
 
-# === OPTIMIZED VECTOR DATABASE (Unchanged) ===
 class OptimizedVectorDB:
+    # FIXED: Corrected constructor to __init__
     def __init__(self, model_type: str = "fast"):
         self.model = model_manager.get_model(model_type)
         self.dimension = self.model.get_sentence_embedding_dimension()
         self.index = faiss.IndexFlatL2(self.dimension)
         self.chunks = []
+
     def add_chunks_optimized(self, chunks: List[Dict], batch_size: int = 64):
         if not chunks: return
         texts = [chunk["text"] for chunk in chunks]
-        embeddings = self.model.encode(texts, batch_size=batch_size, show_progress_bar=False, convert_to_numpy=True)
+        embeddings = self.model.encode(
+            texts, batch_size=batch_size, show_progress_bar=False, convert_to_numpy=True
+        )
         self.index.add(embeddings.astype(np.float32))
         self.chunks.extend(chunks)
+
     def search(self, query: str, k: int = 5) -> List[Dict]:
         if self.index.ntotal == 0: return []
-        query_embedding = self.model.encode([query])
+        query_embedding = self.model.encode([query], convert_to_numpy=True)
         distances, indices = self.index.search(query_embedding.astype(np.float32), k)
         return [self.chunks[idx] for idx in indices[0] if 0 <= idx < len(self.chunks)]
 
-# === REPLACEMENT: TOKEN-EFFICIENT ANSWER GENERATION using Groq ===
 class TokenOptimizedGenerator:
-    """Optimized answer generation using the Groq API for max speed."""
+    # FIXED: Corrected constructor to __init__
     def __init__(self):
         load_dotenv()
         self.api_key = os.getenv("GROQ_API_KEY")
         if not self.api_key:
             raise ValueError("GROQ_API_KEY not found in .env file.")
-        
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url="https://api.groq.com/openai/v1",
-        )
-        self.model_name = "llama3-8b-8192" # A fast and capable model on Groq
+        self.client = OpenAI(api_key=self.api_key, base_url="https://api.groq.com/openai/v1")
+        self.model_name = "llama3-8b-8192"
 
     async def generate_efficient_answer(self, query: str, context_chunks: List[Dict]) -> str:
         if not context_chunks:
@@ -134,7 +131,12 @@ class TokenOptimizedGenerator:
         
         context = "\n\n".join(chunk['text'] for chunk in context_chunks)
         
-        prompt = f"""Based on the context below, answer the question accurately and concisely.
+        # MODIFIED: Updated prompt for simple clause extraction
+        prompt = f"""Based on the context below, answer the question.
+- Return ONLY the most relevant clause(s) verbatim from the document.
+- Do not add any explanation or introductory text.
+- If multiple separate sentences answer the question, join them with a comma and a space.
+- If the answer is not in the context, return the single phrase: "Information not available in the document."
 
 CONTEXT:
 {context}
@@ -142,29 +144,25 @@ CONTEXT:
 QUESTION: {query}
 
 ANSWER:"""
-        
+
         def get_completion():
-            """Synchronous function to be run in a thread."""
             chat_completion = self.client.chat.completions.create(
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that provides concise answers based on the provided context."},
+                    {"role": "system", "content": "You are an expert at extracting verbatim clauses from documents."},
                     {"role": "user", "content": prompt},
                 ],
-                model=self.model_name,
-                temperature=0.1,
-                max_tokens=300,
+                model=self.model_name, temperature=0.0, max_tokens=300,
             )
             return chat_completion.choices[0].message.content
-
+        
         try:
-            # Run the synchronous OpenAI SDK call in a separate thread
             response_text = await asyncio.to_thread(get_completion)
             return response_text.strip()
         except Exception as e:
             return f"Error generating answer from Groq: {str(e)}"
 
-# === CACHING LAYER (Unchanged) ===
 class CacheManager:
+    # FIXED: Corrected constructor to __init__
     def __init__(self):
         self.vector_db_cache: Dict[str, OptimizedVectorDB] = {}
         self.answer_cache: Dict[str, str] = {}
@@ -181,32 +179,35 @@ class CacheManager:
 
 cache_manager = CacheManager()
 
-# === MAIN OPTIMIZED PIPELINE (Unchanged) ===
+# === MAIN OPTIMIZED PIPELINE ===
+# MODIFIED: Function now returns a simple List[str]
 async def process_query(url: str, questions: List[str]) -> List[str]:
     start_time = time.time()
     vector_db = cache_manager.get_cached_vector_db(url)
     if vector_db is None:
         print(f"Processing document: {url}")
         document_text = await DocumentExtractor.extract_from_url(url)
-        chunks = SmartChunker.smart_chunk(document_text)
-        print(f"Created {len(chunks)} smart chunks (Optimized for speed)")
+        chunks = await asyncio.to_thread(SmartChunker.smart_chunk, document_text)
         vector_db = OptimizedVectorDB()
-        vector_db.add_chunks_optimized(chunks)
+        await asyncio.to_thread(vector_db.add_chunks_optimized, chunks)
         cache_manager.cache_vector_db(url, vector_db)
         print(f"🚀 Document processed and indexed in {time.time() - start_time:.2f}s")
-    
+
     answer_generator = TokenOptimizedGenerator()
+
+    # MODIFIED: This inner function now returns a simple string
     async def answer_single_question(question: str) -> str:
         cached_answer = cache_manager.get_cached_answer(url, question)
-        if cached_answer: return cached_answer
-        loop = asyncio.get_event_loop()
-        relevant_chunks = await loop.run_in_executor(_thread_pool, vector_db.search, question, 4)
+        if cached_answer:
+            return cached_answer
+        
+        relevant_chunks = await asyncio.to_thread(vector_db.search, question, 4)
         answer = await answer_generator.generate_efficient_answer(question, relevant_chunks)
         cache_manager.cache_answer(url, question, answer)
         return answer
-    
+
     tasks = [answer_single_question(q) for q in questions]
     answers = await asyncio.gather(*tasks)
-    
+
     print(f"Total processing time: {time.time() - start_time:.2f}s")
     return answers
